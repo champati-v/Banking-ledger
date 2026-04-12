@@ -1,0 +1,32 @@
+node_modules
+.env
+
+# Build outputs
+dist
+build
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Environment
+.env.local
+.env.*.local
+
+# Testing
+coverage
+
+# Cache
+.cache
+.parcel-cache
