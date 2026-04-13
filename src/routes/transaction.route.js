@@ -4,6 +4,17 @@ const transactionController = require('../controllers/transaction.controller');
 
 const transactionRoutes = Router();
 
-transactionRoutes.post('/transactions', authMiddleware.authMiddleware, transactionController.createTransaction);
+/**
+ * - Create a new transaction between two accounts
+ */
+
+transactionRoutes.post('/', authMiddleware.authMiddleware, transactionController.createTransaction);
+
+/**
+ * - POST api/transactions/system/initial-funds
+ * - Create initial funds transfer from system user 
+ */
+
+transactionRoutes.post('/system/initial-funds', authMiddleware.authSystemUserMiddleware, transactionController.createInitialFundsTransaction);
 
 module.exports = transactionRoutes;

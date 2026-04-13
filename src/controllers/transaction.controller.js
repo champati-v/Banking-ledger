@@ -2,8 +2,9 @@ const transactionModel = require('../models/transactions.model');
 const ledgerModel = require('../models/ledger.model');
 const accountModel = require('../models/account.model');
 const emailService = require('../services/email.service');
+const mongoose = require('mongoose');
 
-/**
+/*
  * - Create a new transaction between two accounts
  * 10 Step transfer flow:
  * 1. Validate request body (fromAccount, toAccount, amount)
@@ -24,11 +25,11 @@ async function createTransaction(req, res) {
      * 1. Validate request body (fromAccount, toAccount, amount)
     */
 
-    const { fromAccount, toAccount, amount, idempotenceKey } = req.body;
+    const { fromAccount, toAccount, amount, idempotencyKey } = req.body;
 
-    if(!fromAccount || !toAccount || !amount || !idempotenceKey) {
+    if(!fromAccount || !toAccount || !amount || !idempotencyKey) {
         return res.status(400).json({
-            message: "fromAccount, toAccount, amount and idempotenceKey are required",
+            message: "fromAccount, toAccount, amount and idempotencyKey are required",
             status: "failed"
         });
     };
@@ -53,7 +54,7 @@ async function createTransaction(req, res) {
      */
 
     const isTransactionAlreadyExists = await transactionModel.findOne({
-        idempotenceKey: idempotenceKey
+        idempotencyKey: idempotencyKey
     });
 
     if(isTransactionAlreadyExists) {
@@ -115,9 +116,124 @@ async function createTransaction(req, res) {
      * 5. Create transaction with PENDING status
      */
 
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    const transaction = new transactionModel.create({
+        fromAccount,
+        toAccount,
+        amount,
+        idempotencyKey,
+        status: "PENDING"
+    }, { session });
+
+    const debitLedgerEntry = await ledgerModel.create([{
+        account: fromAccount,
+        amount,
+        type: "DEBIT",
+        transaction: transaction._id
+    }], { session });
+
+    const creditLedgerEntry = await ledgerModel.create([{
+        account: toAccount,
+        amount,
+        type: "CREDIT",
+        transaction: transaction._id
+    }], { session });
+
+    transaction.status = "COMPLETED";
+    await transaction.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    /**
+     * 6. Send email notifications to both parties
+     */
+
     
 }
 
+
+/**
+ * Create initial funds transaction from system to user account
+ */
+
+async function createInitialFundsTransaction(req, res) {
+    const {toAccount, amount, idempotencyKey} = req.body;
+
+    if(!toAccount || !amount || !idempotencyKey) {
+        return res.status(400).json({
+            message: "toAccount, amount and idempotencyKey are required",
+            status: "failed"
+        });
+    }
+
+    const toUserAccount = await accountModel.findOne({
+        _id: toAccount,
+    })
+
+    if(!toUserAccount) {
+        return res.status(404).json({
+            message: "Invalid Receiver account",
+            status: "failed"
+        });
+    }
+
+    const fromUserAccount = await accountModel.findOne({
+        user: req.user._id
+    });
+
+    /**
+     * - Edge case: If someone deleted system user/DB has no system user
+     */
+
+    if(!fromUserAccount) {
+        return res.status(404).json({
+            message: "System account not found for the user",
+            status: "failed"
+        });
+    }
+
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    const transaction = new transactionModel({
+        fromAccount: fromUserAccount._id,
+        toAccount,
+        amount,
+        idempotencyKey,
+        status: "PENDING"
+    })
+
+    const debitLedgerEntry = await ledgerModel.create([{
+        account: fromUserAccount._id,
+        amount,
+        transaction: transaction._id,
+        type: "DEBIT"
+    }], { session });
+
+    const creditLedgerEntry = await ledgerModel.create([{
+        account: toAccount,
+        amount,
+        transaction: transaction._id,
+        type: "CREDIT"
+    }], { session });
+
+    transaction.status = "COMPLETED";
+    await transaction.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return res.status(201).json({
+        message: "Initial funds transaction successful",
+        status: "success",
+        transaction
+    });
+}
+
 module.exports = {
-    createTransaction
+    createTransaction,
+    createInitialFundsTransaction
 };
