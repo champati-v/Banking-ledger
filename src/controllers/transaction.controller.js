@@ -57,6 +57,8 @@ async function createTransaction(req, res) {
         idempotencyKey: idempotencyKey
     });
 
+    console.log("From user email: ", req.user._id);
+
     if(isTransactionAlreadyExists) {
         if(isTransactionAlreadyExists.status === "COMPLETED") {
             return res.status(200).json({
@@ -112,6 +114,9 @@ async function createTransaction(req, res) {
         });
     };
 
+    let transaction;
+    
+    try{
     /**
      * 5. Create transaction with PENDING status
      */
@@ -119,13 +124,15 @@ async function createTransaction(req, res) {
     const session = await mongoose.startSession();
     session.startTransaction();
 
-    const transaction = new transactionModel.create({
+    transaction = ( await transactionModel.create([{
         fromAccount,
         toAccount,
         amount,
         idempotencyKey,
         status: "PENDING"
-    }, { session });
+    }], { session }))[0];
+
+    console.log("Transaction created with PENDING status:", transaction);
 
     const debitLedgerEntry = await ledgerModel.create([{
         account: fromAccount,
@@ -134,6 +141,14 @@ async function createTransaction(req, res) {
         transaction: transaction._id
     }], { session });
 
+    /**
+     * - Delay for 10 seconds to simulate real-world processing time and test idempotency and transaction status handling
+     */
+
+    await (() => {
+        return new Promise((resolve) => setTimeout(resolve, 10 * 1000));
+    })();
+
     const creditLedgerEntry = await ledgerModel.create([{
         account: toAccount,
         amount,
@@ -141,23 +156,38 @@ async function createTransaction(req, res) {
         transaction: transaction._id
     }], { session });
 
-    transaction.status = "COMPLETED";
-    await transaction.save({ session });
+    await transactionModel.findOneAndUpdate(
+        { _id: transaction._id },
+        { status: "COMPLETED" },
+        { session }
+    )
 
     await session.commitTransaction();
     session.endSession();
+    } catch (error) {
+        return res.status(400).json({
+            message: "Transaction is Pending due to some error, please try after some time",
+            status: "failed"
+        });
+    }
+
 
     /**
      * 6. Send email notifications to both parties
      */
 
-    
-}
+    await emailService.sendTransactionEmail(req.user.email, req.user.name, amount, "DEBIT");
 
+    return res.status(201).json({
+        message: "Transaction successful",
+        status: "success",
+        transaction
+    });
+}
 
 /**
  * Create initial funds transaction from system to user account
- */
+*/
 
 async function createInitialFundsTransaction(req, res) {
     const {toAccount, amount, idempotencyKey} = req.body;

@@ -1,5 +1,6 @@
 const userModel = require('../models/user.model');
 const jwt = require('jsonwebtoken');
+const tokenBlackListModel = require('../models/blackList.model');
 
 /**
  * - Middleware to authenticate NORMAL users based on JWT token
@@ -10,6 +11,15 @@ async function authMiddleware(req, res, next) {
     if(!token) {
         return res.status(401).json({
             message: "Unauthorized access, token is missing",
+            status: "failed"
+        });
+    }
+
+    const isBlackListed = await tokenBlackListModel.findOne({ token });
+
+    if(isBlackListed) {
+        return res.status(401).json({
+            message: "Unauthorized access, token is invalid",
             status: "failed"
         });
     }
@@ -40,6 +50,15 @@ async function authSystemUserMiddleware(req, res, next) {
     if(!token) {
         return res.status(401).json({
             message: "Unauthorized access, token is missing",
+            status: "failed"
+        });
+    }
+
+    const isBlackListed = await tokenBlackListModel.findOne({ token });
+
+    if(isBlackListed) {
+        return res.status(401).json({
+            message: "Unauthorized access, token is invalid",
             status: "failed"
         });
     }

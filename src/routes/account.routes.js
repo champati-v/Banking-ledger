@@ -13,4 +13,12 @@ const router = express.Router();
 
 router.post('/', authMiddleware.authMiddleware, accountController.createAccountController);
 
-module.exports = router;
+/**
+ * - GET /api/accounts/balance/:accountId
+ * - Get the balance of a specific bank account
+ * - Protected
+ */
+
+ router.get('/balance/:accountId', authMiddleware.authMiddleware, accountController.getAccountBalanceController);
+
+module.exports = router; 
