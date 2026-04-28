@@ -43,4 +43,12 @@ app.use('/api/auth', authRouter);
 app.use('/api/accounts', accountRouter);
 app.use('/api/transactions', transactionRouter);
 
+app.use((req, res) => {
+    console.log(`404 at ${req.method} ${req.originalUrl}`);
+    res.status(404).json({
+        message: "Route not found",
+        status: "error"
+    });
+});
+
 module.exports = app;

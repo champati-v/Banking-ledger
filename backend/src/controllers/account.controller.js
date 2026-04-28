@@ -39,7 +39,46 @@ async function getAccountBalanceController(req, res) {
     });
 }
 
+async function getAccountsController(req, res) {
+    const accounts = await accountModel.find({ user: req.user._id });
+    
+    // Fetch balance for each account to return it with the account object
+    const accountsWithBalance = await Promise.all(accounts.map(async (account) => {
+        const balance = await account.getBalance();
+        return {
+            ...account.toObject(),
+            balance
+        };
+    }));
+
+    res.status(200).json({
+        message: "Accounts retrieved successfully",
+        status: "success",
+        accounts: accountsWithBalance
+    });
+}
+
+async function getAllAccountsAdminController(req, res) {
+    const accounts = await accountModel.find({});
+    
+    const accountsWithBalance = await Promise.all(accounts.map(async (account) => {
+        const balance = await account.getBalance();
+        return {
+            ...account.toObject(),
+            balance
+        };
+    }));
+
+    res.status(200).json({
+        message: "All accounts retrieved successfully",
+        status: "success",
+        accounts: accountsWithBalance
+    });
+}
+
 module.exports = {
     createAccountController,
-    getAccountBalanceController
+    getAccountBalanceController,
+    getAccountsController,
+    getAllAccountsAdminController
 };

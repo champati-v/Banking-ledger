@@ -98,4 +98,30 @@ export function createInitialFunds(
     token,
   })
 }
+export function getAccounts(token: string | null) {
+  return request<{ message: string; status: string; accounts: any[] }>('/accounts', {
+    method: 'GET',
+    token,
+  })
+}
 
+export function getAllAccountsAdmin(token: string | null) {
+  return request<{ message: string; status: string; accounts: any[] }>('/accounts/admin/all', {
+    method: 'GET',
+    token,
+  })
+}
+
+export function getTransactions(token: string | null) {
+  return request<{ message: string; status: string; transactions: any[] }>('/transactions', {
+    method: 'GET',
+    token,
+  })
+}
+
+export function getAllTransactionsAdmin(token: string | null) {
+  return request<{ message: string; status: string; transactions: any[] }>('/transactions/admin/all', {
+    method: 'GET',
+    token,
+  })
+}

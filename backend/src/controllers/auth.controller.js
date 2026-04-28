@@ -37,7 +37,8 @@ async function userRegisterConroller(req, res){
         user: {
             _id: user._id,
             name: user.name,
-            email: user.email
+            email: user.email,
+            systemUser: user.systemUser
         },
         token 
     });
@@ -57,7 +58,7 @@ async function userRegisterConroller(req, res){
 const userLoginController = async (req, res) => {
     const { email, password } = req.body;
 
-    const user = await userModel.findOne({ email }).select('+password');
+    const user = await userModel.findOne({ email }).select('+password +systemUser');
 
     if (!user) {
         return res.status(404).json({
@@ -83,7 +84,8 @@ const userLoginController = async (req, res) => {
         user: {
             _id: user._id,
             name: user.name,
-            email: user.email
+            email: user.email,
+            systemUser: user.systemUser
         },
         token 
     });

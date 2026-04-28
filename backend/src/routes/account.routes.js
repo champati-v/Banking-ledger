@@ -10,15 +10,22 @@ const router = express.Router();
  * - Protected Route: Requires Authentication
  * - Body: { accountType, initialDeposit }
  */
-
 router.post('/', authMiddleware.authMiddleware, accountController.createAccountController);
 
 /**
- * - GET /api/accounts/balance/:accountId
- * - Get the balance of a specific bank account
+ * - GET /api/accounts/
+ * - Get all accounts for the authenticated user
  * - Protected
  */
+router.get('/', authMiddleware.authMiddleware, accountController.getAccountsController);
 
- router.get('/balance/:accountId', authMiddleware.authMiddleware, accountController.getAccountBalanceController);
+/**
+ * - GET /api/accounts/admin/all
+ * - Get all accounts in the database
+ * - Protected: System User Only
+ */
+router.get('/admin/all', authMiddleware.authSystemUserMiddleware, accountController.getAllAccountsAdminController);
 
-module.exports = router; 
+router.get('/balance/:accountId', authMiddleware.authMiddleware, accountController.getAccountBalanceController);
+
+module.exports = router;

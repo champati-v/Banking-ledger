@@ -115,4 +115,39 @@ export function AlertIcon(props: IconProps) {
     </Icon>
   )
 }
+export function LayoutIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M3 9h18" />
+      <path d="M9 21V9" />
+    </Icon>
+  )
+}
 
+export function BellIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+    </Icon>
+  )
+}
+
+export function ArrowUpRightIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M7 17L17 7" />
+      <path d="M7 7h10v10" />
+    </Icon>
+  )
+}
+
+export function ArrowDownLeftIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M17 7L7 17" />
+      <path d="M17 17H7V7" />
+    </Icon>
+  )
+}

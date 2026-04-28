@@ -1,8 +1,20 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import type { Account, ToastItem, Transaction, User } from '../types'
-import { clearAuthStorage, getAccountsStorageKey, getAuthStorageKey, getTransactionsStorageKey, loadJson, saveJson, type PersistedAuth } from '../lib/storage'
-import { createAccount, createInitialFunds, createTransaction, loginUser, logoutUser, registerUser, getBalance } from '../lib/api'
+import { clearAuthStorage, getAuthStorageKey, loadJson, saveJson, type PersistedAuth } from '../lib/storage'
+import { 
+  createAccount, 
+  createInitialFunds, 
+  createTransaction, 
+  loginUser, 
+  logoutUser, 
+  registerUser, 
+  getBalance, 
+  getAccounts, 
+  getTransactions,
+  getAllAccountsAdmin,
+  getAllTransactionsAdmin
+} from '../lib/api'
 import { makeIdempotencyKey } from '../lib/format'
 
 type AppView = 'landing' | 'dashboard'
@@ -30,6 +42,7 @@ interface BankingContextValue {
   signOut: () => Promise<void>
   addAccount: () => Promise<Account>
   fetchBalance: (accountId: string) => Promise<number>
+  refreshData: () => Promise<void>
   transferFunds: (payload: { fromAccount: string; toAccount: string; amount: number; idempotencyKey?: string }) => Promise<Transaction>
   fundInitialAccount: (payload: { toAccount: string; amount: number; idempotencyKey?: string }) => Promise<Transaction>
   seedIdempotencyKey: () => string
@@ -42,11 +55,11 @@ export function BankingProvider({ children }: { children: React.ReactNode }) {
     const persistedAuth = loadJson<PersistedAuth | null>(getAuthStorageKey(), null)
     return persistedAuth ? { user: persistedAuth.user, token: persistedAuth.token } : { user: null, token: null }
   })
-  const [accounts, setAccounts] = useState<Account[]>(() => loadJson<Account[]>(getAccountsStorageKey(), []))
-  const [transactions, setTransactions] = useState<Transaction[]>(() => loadJson<Transaction[]>(getTransactionsStorageKey(), []))
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [transactions, setTransactions] = useState<Transaction[]>([])
   const [balances, setBalances] = useState<Record<string, number>>({})
   const [toasts, setToasts] = useState<ToastItem[]>([])
-  const isHydrated = true
+  const [isHydrated, setIsHydrated] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
   const [activeView, setActiveView] = useState<AppView>(() => {
     const persistedAuth = loadJson<PersistedAuth | null>(getAuthStorageKey(), null)
@@ -54,36 +67,85 @@ export function BankingProvider({ children }: { children: React.ReactNode }) {
   })
   const [isSystemUser, setIsSystemUser] = useState(false)
 
+  const refreshData = useCallback(async (token?: string, user?: User | null) => {
+    const activeToken = token || auth.token
+    const activeUser = user || auth.user
+    if (!activeToken || !activeUser) return
+    
+    try {
+      console.log('Fetching banking data...')
+      setIsSystemUser(activeUser.systemUser || false)
+
+      let accountsRes, transactionsRes
+      if (activeUser.systemUser) {
+        console.log('System User detected, fetching admin data...')
+        const [a, t] = await Promise.all([
+          getAllAccountsAdmin(activeToken),
+          getAllTransactionsAdmin(activeToken)
+        ])
+        accountsRes = a
+        transactionsRes = t
+      } else {
+        const [a, t] = await Promise.all([
+          getAccounts(activeToken),
+          getTransactions(activeToken)
+        ])
+        accountsRes = a
+        transactionsRes = t
+      }
+      
+      console.log('Accounts received:', accountsRes.accounts.length)
+      setAccounts(accountsRes.accounts)
+      setTransactions(transactionsRes.transactions)
+      
+      const nextBalances: Record<string, number> = {}
+      accountsRes.accounts.forEach((acc: any) => {
+        nextBalances[acc._id] = acc.balance
+      })
+      setBalances(nextBalances)
+    } catch (err) {
+      console.error('Refresh data failed:', err)
+      throw err
+    }
+  }, [auth.token, auth.user])
+
+  // Initialization
   useEffect(() => {
-    if (!isHydrated) return
+    const init = async () => {
+      console.log('Initializing Banking Provider...')
+      if (auth.token && auth.user) {
+        try {
+          await refreshData(auth.token, auth.user)
+        } catch (error) {
+          console.error('Failed to hydrate banking data:', error)
+          signOut()
+        }
+      }
+      setIsHydrated(true)
+    }
+    init()
+  }, []) // Only on mount
+
+  useEffect(() => {
     if (auth.token && auth.user) {
       saveJson(getAuthStorageKey(), { token: auth.token, user: auth.user } satisfies PersistedAuth)
     } else {
       clearAuthStorage()
     }
-  }, [auth, isHydrated])
-
-  useEffect(() => {
-    if (!isHydrated) return
-    saveJson(getAccountsStorageKey(), accounts)
-  }, [accounts, isHydrated])
-
-  useEffect(() => {
-    if (!isHydrated) return
-    saveJson(getTransactionsStorageKey(), transactions)
-  }, [transactions, isHydrated])
+  }, [auth])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setToasts((current) => current.slice(0, 4))
-    }, 4500)
-
+      if (toasts.length > 0) {
+        setToasts((current) => current.slice(0, current.length - 1))
+      }
+    }, 5000)
     return () => window.clearTimeout(timer)
   }, [toasts])
 
   const pushToast = (toast: Omit<ToastItem, 'id'>) => {
     const id = makeIdempotencyKey()
-    setToasts((current) => [{ id, ...toast }, ...current].slice(0, 4))
+    setToasts((current) => [{ id, ...toast }, ...current])
   }
 
   const dismissToast = (id: string) => {
@@ -99,32 +161,28 @@ export function BankingProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const hydrateAuth = (user: User, token: string) => {
-    setAuth({ user, token })
-    setActiveView('dashboard')
-  }
-
   const signIn = async ({ email, password }: { email: string; password: string }) => {
     const response = await withBusy(() => loginUser({ email, password }))
-    hydrateAuth(response.user, response.token)
-    pushToast({ title: 'Signed in', description: 'Your banking workspace is ready.', tone: 'success' })
+    setAuth({ user: response.user, token: response.token })
+    await refreshData(response.token, response.user)
+    setActiveView('dashboard')
+    pushToast({ title: 'Welcome back', description: 'Authentication successful.', tone: 'success' })
   }
 
   const signUp = async ({ name, email, password }: { name: string; email: string; password: string }) => {
     const response = await withBusy(() => registerUser({ name, email, password }))
-    hydrateAuth(response.user, response.token)
+    setAuth({ user: response.user, token: response.token })
+    await refreshData(response.token, response.user)
+    setActiveView('dashboard')
     pushToast({ title: 'Account created', description: 'Welcome to Bank Ledger.', tone: 'success' })
   }
 
   const signOut = async () => {
-    await withBusy(async () => {
+    if (auth.token) {
       try {
         await logoutUser(auth.token)
-      } catch {
-        // Even if the network call fails, clear the local session.
-      }
-    })
-
+      } catch (e) { /* ignore */ }
+    }
     setAuth({ user: null, token: null })
     setAccounts([])
     setTransactions([])
@@ -132,79 +190,46 @@ export function BankingProvider({ children }: { children: React.ReactNode }) {
     setIsSystemUser(false)
     setActiveView('landing')
     clearAuthStorage()
-    pushToast({ title: 'Signed out', description: 'Session cleared from this device.', tone: 'info' })
+    pushToast({ title: 'Signed out', description: 'Session ended securely.', tone: 'info' })
   }
 
   const addAccount = async () => {
-    if (!auth.token) throw new Error('You must be signed in to create an account.')
-
+    if (!auth.token) throw new Error('Auth required')
     const response = await withBusy(() => createAccount(auth.token))
-    const account = response.account as Account
-    const nextAccount = {
-      ...account,
-      status: account.status || 'ACTIVE',
-      currency: account.currency || 'INR',
-    }
-
-    setAccounts((current) => [nextAccount, ...current])
-    setBalances((current) => ({ ...current, [nextAccount._id]: current[nextAccount._id] ?? 0 }))
-    pushToast({ title: 'Account created', description: `Account ${nextAccount._id} is now active.`, tone: 'success' })
-    return nextAccount
+    await refreshData()
+    pushToast({ title: 'Account opened', description: 'Your new bank account is ready.', tone: 'success' })
+    return response.account as Account
   }
 
   const fetchBalance = async (accountId: string) => {
-    if (!auth.token) throw new Error('You must be signed in to check balances.')
-
+    if (!auth.token) throw new Error('Auth required')
     const response = await withBusy(() => getBalance(accountId, auth.token))
-    setBalances((current) => ({ ...current, [accountId]: response.balance }))
-    pushToast({ title: 'Balance refreshed', description: `Fetched the latest balance for ${accountId}.`, tone: 'info' })
+    setBalances((prev) => ({ ...prev, [accountId]: response.balance }))
     return response.balance
   }
 
   const transferFunds = async (payload: { fromAccount: string; toAccount: string; amount: number; idempotencyKey?: string }) => {
-    if (!auth.token) throw new Error('You must be signed in to transfer funds.')
-
+    if (!auth.token) throw new Error('Auth required')
     const body = {
       ...payload,
       idempotencyKey: payload.idempotencyKey || makeIdempotencyKey(),
     }
-
     const response = await withBusy(() => createTransaction(body, auth.token))
-    const transaction: Transaction = {
-      ...(response.transaction as Transaction),
-      ...body,
-      status: 'COMPLETED',
-      createdAt: new Date().toISOString(),
-    }
-
-    setTransactions((current) => [transaction, ...current])
-    pushToast({ title: 'Transfer submitted', description: 'The transaction completed successfully.', tone: 'success' })
-    return transaction
+    await refreshData()
+    pushToast({ title: 'Transfer complete', description: 'Funds have been moved successfully.', tone: 'success' })
+    return response.transaction as Transaction
   }
 
   const fundInitialAccount = async (payload: { toAccount: string; amount: number; idempotencyKey?: string }) => {
-    if (!auth.token) throw new Error('You must be signed in to use treasury tools.')
-
+    if (!auth.token) throw new Error('Auth required')
     const body = {
       ...payload,
       idempotencyKey: payload.idempotencyKey || makeIdempotencyKey(),
     }
-
     const response = await withBusy(() => createInitialFunds(body, auth.token))
-    const transaction: Transaction = {
-      ...(response.transaction as Transaction),
-      fromAccount: auth.user?._id || 'system',
-      toAccount: body.toAccount,
-      amount: body.amount,
-      idempotencyKey: body.idempotencyKey,
-      status: 'COMPLETED',
-      createdAt: new Date().toISOString(),
-    }
-
-    setTransactions((current) => [transaction, ...current])
-    setIsSystemUser(true)
-    pushToast({ title: 'Treasury transfer complete', description: 'Initial funding was processed.', tone: 'success' })
-    return transaction
+    await refreshData()
+    pushToast({ title: 'Funding complete', description: 'Treasury funds allocated.', tone: 'success' })
+    return response.transaction as Transaction
   }
 
   const seedIdempotencyKey = () => makeIdempotencyKey()
@@ -227,6 +252,7 @@ export function BankingProvider({ children }: { children: React.ReactNode }) {
     signOut,
     addAccount,
     fetchBalance,
+    refreshData,
     transferFunds,
     fundInitialAccount,
     seedIdempotencyKey,
@@ -237,8 +263,6 @@ export function BankingProvider({ children }: { children: React.ReactNode }) {
 
 export function useBanking() {
   const context = useContext(BankingContext)
-  if (!context) {
-    throw new Error('useBanking must be used inside BankingProvider')
-  }
+  if (!context) throw new Error('useBanking must be used inside BankingProvider')
   return context
 }

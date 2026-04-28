@@ -263,7 +263,37 @@ async function createInitialFundsTransaction(req, res) {
     });
 }
 
+async function getTransactionsController(req, res) {
+    const userAccounts = await accountModel.find({ user: req.user._id });
+    const accountIds = userAccounts.map(acc => acc._id);
+
+    const transactions = await transactionModel.find({
+        $or: [
+            { fromAccount: { $in: accountIds } },
+            { toAccount: { $in: accountIds } }
+        ]
+    }).sort({ createdAt: -1 });
+
+    res.status(200).json({
+        message: "Transactions retrieved successfully",
+        status: "success",
+        transactions
+    });
+}
+
+async function getAllTransactionsAdminController(req, res) {
+    const transactions = await transactionModel.find({}).sort({ createdAt: -1 });
+
+    res.status(200).json({
+        message: "All transactions retrieved successfully",
+        status: "success",
+        transactions
+    });
+}
+
 module.exports = {
     createTransaction,
-    createInitialFundsTransaction
+    createInitialFundsTransaction,
+    getTransactionsController,
+    getAllTransactionsAdminController
 };
